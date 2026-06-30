@@ -152,19 +152,19 @@ class MessageWorker:
                 )
                 return None
             input_text = self.preprocessing_service.process(message, override_text=decision.combined_text)
-            response = self._process_agent_input(conversation.id, message.provider_user_id, input_text)
+            response = self._process_agent_input(conversation.id, conversation.provider_user_id, input_text)
             self.queue_service.mark_done_many(decision.queue_ids or [queue_id])
             return response
 
         if message.message_type == "audio":
             flushed = self.debounce_service.flush_pending_texts(conversation.id, exclude_queue_id=queue_id)
             if flushed and flushed.combined_text:
-                text_response = self._process_agent_input(conversation.id, message.provider_user_id, flushed.combined_text)
+                text_response = self._process_agent_input(conversation.id, conversation.provider_user_id, flushed.combined_text)
                 if text_response:
                     self.outbound_service.send_text(conversation, text_response)
                 self.queue_service.mark_done_many(flushed.queue_ids)
             input_text = self.preprocessing_service.process(message)
-            response = self._process_agent_input(conversation.id, message.provider_user_id, input_text)
+            response = self._process_agent_input(conversation.id, conversation.provider_user_id, input_text)
             self.queue_service.mark_done(queue_id)
             return response
 
