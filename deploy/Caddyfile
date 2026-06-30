@@ -1,0 +1,8 @@
+{
+  http_port 8080
+  auto_https disable_redirects
+}
+
+telegram.productpulse.com.br {
+  reverse_proxy api:8000
+}

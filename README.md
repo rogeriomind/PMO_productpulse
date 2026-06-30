@@ -31,6 +31,24 @@ Suba a stack:
 docker compose up --build
 ```
 
+## Deploy na Contabo
+
+O arquivo `docker-compose.prod.yml` sobe `api`, `worker`, PostgreSQL próprio e Caddy em HTTPS para `telegram.productpulse.com.br`.
+
+Na VPS, com o PMO Board já rodando no network Docker `board_pmo_default`:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+No `.env` da VPS, use:
+
+```env
+PMO_API_URL=http://pmo-board-api:3333/api
+```
+
+O Caddy publica apenas a porta `443`, mantendo a porta `80` livre para o PMO Board existente.
+
 Teste o healthcheck:
 
 ```bash

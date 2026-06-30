@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pmo_agent
+      POSTGRES_PASSWORD: pmo_agent
+      POSTGRES_DB: pmo_agent
+    volumes:
+      - pmo_agent_postgres_data:/var/lib/postgresql/data
+      - ./app/database/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - pmo_agent
+
+  api:
+    build: .
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    env_file:
+      - .env
+    expose:
+      - "8000"
+    depends_on:
+      - postgres
+    networks:
+      - pmo_agent
+      - board_pmo_default
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: python -m app.workers.message_worker
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+    networks:
+      - pmo_agent
+      - board_pmo_default
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - pmo_agent_caddy_data:/data
+      - pmo_agent_caddy_config:/config
+    depends_on:
+      - api
+    networks:
+      - pmo_agent
+
+volumes:
+  pmo_agent_postgres_data:
+  pmo_agent_caddy_data:
+  pmo_agent_caddy_config:
+
+networks:
+  pmo_agent:
+  board_pmo_default:
+    external: true
