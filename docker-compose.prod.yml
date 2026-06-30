@@ -1,5 +1,5 @@
 services:
-  postgres:
+  agent-postgres:
     image: postgres:16
     restart: unless-stopped
     environment:
@@ -21,7 +21,7 @@ services:
     expose:
       - "8000"
     depends_on:
-      - postgres
+      - agent-postgres
     networks:
       - pmo_agent
       - board_pmo_default
@@ -33,7 +33,7 @@ services:
     env_file:
       - .env
     depends_on:
-      - postgres
+      - agent-postgres
     networks:
       - pmo_agent
       - board_pmo_default

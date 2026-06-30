@@ -44,6 +44,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 No `.env` da VPS, use:
 
 ```env
+DATABASE_URL=postgresql://pmo_agent:pmo_agent@agent-postgres:5432/pmo_agent
 PMO_API_URL=http://pmo-board-api:3333/api
 ```
 
