@@ -6,7 +6,8 @@ from app.repositories.queue_repository import QueueRepository
 from app.workers.message_worker import MessageWorker
 
 
-def _settings():
+def _settings(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "")
     return Settings(
         app_env="test",
         database_url="sqlite+pysqlite:///:memory:",
@@ -33,10 +34,10 @@ def _enqueue_text(db, provider_message_id: str, text: str):
     return conversation, message
 
 
-def test_worker_sends_telegram_menu_for_inbound_message(db):
+def test_worker_sends_telegram_menu_for_inbound_message(db, monkeypatch):
     conversation, _ = _enqueue_text(db, "msg-1", "Olá")
 
-    result = MessageWorker(db, _settings()).process_once()
+    result = MessageWorker(db, _settings(monkeypatch)).process_once()
     messages = MessageRepository(db).list_by_conversation(conversation.id)
 
     assert result["processed"] is True
@@ -45,10 +46,10 @@ def test_worker_sends_telegram_menu_for_inbound_message(db):
     assert messages[-1].raw_payload["reply_markup"]["inline_keyboard"][0][0]["text"] == "Status"
 
 
-def test_worker_returns_status_mock_for_menu_callback(db):
+def test_worker_returns_status_mock_for_menu_callback(db, monkeypatch):
     conversation, _ = _enqueue_text(db, "callback-1", "menu_status")
 
-    result = MessageWorker(db, _settings()).process_once()
+    result = MessageWorker(db, _settings(monkeypatch)).process_once()
     messages = MessageRepository(db).list_by_conversation(conversation.id)
 
     assert result["processed"] is True
@@ -56,10 +57,10 @@ def test_worker_returns_status_mock_for_menu_callback(db):
     assert "Status mockado" in messages[-1].normalized_text
 
 
-def test_worker_returns_task_mock_for_typed_menu_option(db):
+def test_worker_returns_task_mock_for_typed_menu_option(db, monkeypatch):
     conversation, _ = _enqueue_text(db, "msg-2", "Criação/Atualização Tarefa")
 
-    result = MessageWorker(db, _settings()).process_once()
+    result = MessageWorker(db, _settings(monkeypatch)).process_once()
     messages = MessageRepository(db).list_by_conversation(conversation.id)
 
     assert result["processed"] is True
@@ -67,10 +68,10 @@ def test_worker_returns_task_mock_for_typed_menu_option(db):
     assert "Fluxo mockado de criação/atualização de tarefa" in messages[-1].normalized_text
 
 
-def test_worker_returns_question_mock_for_typed_menu_option(db):
+def test_worker_returns_question_mock_for_typed_menu_option(db, monkeypatch):
     conversation, _ = _enqueue_text(db, "msg-3", "Duvida")
 
-    result = MessageWorker(db, _settings()).process_once()
+    result = MessageWorker(db, _settings(monkeypatch)).process_once()
     messages = MessageRepository(db).list_by_conversation(conversation.id)
 
     assert result["processed"] is True
