@@ -30,11 +30,12 @@ class InboundService:
             max_attempts=settings.max_queue_attempts,
         )
         self.normalizer = InboundNormalizer()
+        self.telegram_provider = TelegramMessageProvider(settings)
         self.outbound_service = OutboundService(
             self.message_repository,
             self.audit_service,
             {
-                "telegram": TelegramMessageProvider(settings),
+                "telegram": self.telegram_provider,
                 "whatsapp": WhatsAppMessageProviderMock(),
             },
         )
@@ -48,6 +49,8 @@ class InboundService:
         except ValueError as exc:
             self.audit_service.record("payload_invalid", "failed", payload={"provider": provider}, error_message=str(exc))
             return {"status": "invalid", "error": str(exc)}
+
+        self._ack_telegram_callback(provider, payload)
 
         conversation = self.conversation_repository.get_or_create(
             normalized.provider,
@@ -85,3 +88,15 @@ class InboundService:
             payload={"queue_id": queue_item.id},
         )
         return {"status": "queued", "conversation_id": conversation.id, "message_id": message.id, "queue_id": queue_item.id}
+
+    def _ack_telegram_callback(self, provider: str, payload: dict) -> None:
+        if provider != "telegram":
+            return
+        callback = payload.get("callback_query")
+        if not isinstance(callback, dict) or not callback.get("id"):
+            return
+        try:
+            result = self.telegram_provider.answer_callback(str(callback["id"]))
+            self.audit_service.record("telegram_callback_ack", "success", payload={"result": result})
+        except Exception as exc:
+            self.audit_service.record("telegram_callback_ack", "failed", error_message=str(exc))

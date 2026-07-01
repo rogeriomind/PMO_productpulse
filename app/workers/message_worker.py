@@ -1,5 +1,6 @@
 import logging
 import time
+import unicodedata
 
 from sqlalchemy.orm import Session
 
@@ -28,6 +29,52 @@ from app.services.preprocessing_service import PreprocessingService
 from app.services.queue_service import QueueService
 
 logger = logging.getLogger(__name__)
+
+
+TELEGRAM_MENU_TEXT = "Olá! Escolha uma opção para continuar:"
+TELEGRAM_MENU_REPLY_MARKUP = {
+    "inline_keyboard": [
+        [{"text": "Status", "callback_data": "menu_status"}],
+        [{"text": "Criação/Atualização Tarefa", "callback_data": "menu_task"}],
+        [{"text": "Duvida", "callback_data": "menu_question"}],
+    ]
+}
+TELEGRAM_MENU_FLOW_ALIASES = {
+    "menu_status": "menu_status",
+    "menu:status": "menu_status",
+    "status": "menu_status",
+    "menu_task": "menu_task",
+    "menu:tarefa": "menu_task",
+    "criacao/atualizacao tarefa": "menu_task",
+    "criacao atualizacao tarefa": "menu_task",
+    "criacao": "menu_task",
+    "atualizacao": "menu_task",
+    "tarefa": "menu_task",
+    "menu_question": "menu_question",
+    "menu:duvida": "menu_question",
+    "duvida": "menu_question",
+}
+TELEGRAM_MENU_FLOW_RESPONSES = {
+    "menu_status": (
+        "Status mockado:\n"
+        "- Projeto PMO Agent: em andamento\n"
+        "- 3 tarefas em aberto\n"
+        "- 1 tarefa bloqueada aguardando definição\n"
+        "- Próximo passo: revisar prioridades do dia."
+    ),
+    "menu_task": (
+        "Fluxo mockado de criação/atualização de tarefa:\n"
+        "- Tarefa: Ajustar integração Telegram\n"
+        "- Ação: atualizar descrição e responsável\n"
+        "- Status sugerido: TODO\n"
+        "- Próximo passo: confirmar os dados antes de gravar no board."
+    ),
+    "menu_question": (
+        "Fluxo mockado de dúvida:\n"
+        "Pode me enviar uma pergunta sobre prazo, prioridade, responsável ou impedimento. "
+        "Exemplo: qual o prazo da atividade de onboarding?"
+    ),
+}
 
 
 class MessageWorker:
@@ -120,7 +167,7 @@ class MessageWorker:
             return {"processed": False, "reason": result, "error": str(exc)}
 
     def _handle_message(self, conversation, message, queue_id: str) -> str | None:
-        if message.message_type in ("image", "unknown"):
+        if message.message_type in ("image", "unknown") and conversation.provider != "telegram":
             self.queue_service.mark_done(queue_id)
             return "Recebi a mensagem, mas neste MVP só consigo tratar texto e áudio."
 
@@ -138,6 +185,14 @@ class MessageWorker:
             if not action:
                 return "Não encontrei ação pendente para confirmar."
             return self.board_service.execute_confirmed_action(action)
+
+        if conversation.provider == "telegram":
+            selected_flow = self._telegram_menu_flow(control_text) if message.message_type == "text" else None
+            self.queue_service.mark_done(queue_id)
+            if selected_flow:
+                return TELEGRAM_MENU_FLOW_RESPONSES[selected_flow]
+            self._send_telegram_menu(conversation)
+            return ""
 
         if message.message_type == "text":
             decision = self.debounce_service.assess_text(conversation.id, message.id)
@@ -196,6 +251,18 @@ class MessageWorker:
                 error_message=str(exc),
             )
             raise
+
+    def _send_telegram_menu(self, conversation) -> None:
+        self.outbound_service.send_text(conversation, TELEGRAM_MENU_TEXT, reply_markup=TELEGRAM_MENU_REPLY_MARKUP)
+
+    def _telegram_menu_flow(self, text: str) -> str | None:
+        normalized = self._normalize_menu_text(text)
+        return TELEGRAM_MENU_FLOW_ALIASES.get(normalized)
+
+    def _normalize_menu_text(self, text: str) -> str:
+        decomposed = unicodedata.normalize("NFD", text.lower())
+        without_accents = "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
+        return " ".join(without_accents.strip().split())
 
 
 def run_forever() -> None:

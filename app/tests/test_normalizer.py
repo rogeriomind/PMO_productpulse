@@ -40,6 +40,27 @@ def test_normalizes_telegram_audio():
     assert message.media_file_id == "file-123"
 
 
+def test_normalizes_telegram_callback_query_as_text():
+    payload = {
+        "update_id": 2,
+        "callback_query": {
+            "id": "callback-1",
+            "from": {"id": 456},
+            "message": {"message_id": 12, "chat": {"id": 123}},
+            "data": "menu_status",
+        },
+    }
+
+    message = InboundNormalizer().normalize("telegram", payload)
+
+    assert message.provider == "telegram"
+    assert message.provider_chat_id == "123"
+    assert message.provider_user_id == "456"
+    assert message.provider_message_id == "callback:callback-1"
+    assert message.message_type == "text"
+    assert message.text == "menu_status"
+
+
 def test_invalid_payload_raises_controlled_error():
     with pytest.raises(ValueError):
         InboundNormalizer().normalize("telegram", {"update_id": 1})

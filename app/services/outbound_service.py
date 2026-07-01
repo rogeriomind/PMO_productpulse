@@ -15,12 +15,15 @@ class OutboundService:
         self.audit_service = audit_service
         self.providers = providers
 
-    def send_text(self, conversation: ConversationRecord, text: str) -> dict:
+    def send_text(self, conversation: ConversationRecord, text: str, reply_markup: dict | None = None) -> dict:
         provider = self.providers.get(conversation.provider)
         if not provider:
             raise RuntimeError(f"Provider outbound não configurado: {conversation.provider}")
+        payload = {"provider": conversation.provider, "text": text}
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
         try:
-            result = provider.send_text(conversation.provider_chat_id, text)
+            result = provider.send_text(conversation.provider_chat_id, text, reply_markup=reply_markup)
             self.message_repository.create_outbound(
                 conversation_id=conversation.id,
                 provider=conversation.provider,
@@ -31,7 +34,7 @@ class OutboundService:
                 "outbound_sent",
                 "success",
                 conversation_id=conversation.id,
-                payload={"provider": conversation.provider, "text": text, "result": result},
+                payload={**payload, "result": result},
             )
             return result
         except Exception as exc:
@@ -39,7 +42,7 @@ class OutboundService:
                 "outbound_failed",
                 "failed",
                 conversation_id=conversation.id,
-                payload={"provider": conversation.provider, "text": text},
+                payload=payload,
                 error_message=str(exc),
             )
             raise

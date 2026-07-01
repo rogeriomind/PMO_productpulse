@@ -14,6 +14,10 @@ class InboundNormalizer:
         raise ValueError(f"Provider não suportado: {provider}")
 
     def _normalize_telegram(self, payload: dict[str, Any]) -> NormalizedMessage:
+        callback = payload.get("callback_query")
+        if isinstance(callback, dict):
+            return self._normalize_telegram_callback(payload, callback)
+
         message = payload.get("message") or payload.get("edited_message")
         if not isinstance(message, dict):
             raise ValueError("Payload Telegram não contém message")
@@ -52,6 +56,36 @@ class InboundNormalizer:
                 text=text,
                 media_file_id=media_file_id,
                 media_url=media_url,
+                raw_payload=payload,
+            )
+        except ValidationError as exc:
+            raise ValueError(str(exc)) from exc
+
+    def _normalize_telegram_callback(self, payload: dict[str, Any], callback: dict[str, Any]) -> NormalizedMessage:
+        sender = callback.get("from") or {}
+        callback_message = callback.get("message") or {}
+        chat = callback_message.get("chat") or {}
+        chat_id = chat.get("id")
+        if chat_id is None:
+            chat_id = sender.get("id")
+        if chat_id is None:
+            raise ValueError("Payload Telegram callback sem chat.id")
+
+        data = callback.get("data")
+        if data is None:
+            raise ValueError("Payload Telegram callback sem data")
+
+        callback_id = callback.get("id") or payload.get("update_id")
+        provider_message_id = f"callback:{callback_id}" if callback_id is not None else None
+
+        try:
+            return NormalizedMessage(
+                provider="telegram",
+                provider_chat_id=str(chat_id),
+                provider_user_id=str(sender.get("id")) if sender.get("id") is not None else None,
+                provider_message_id=provider_message_id,
+                message_type="text",
+                text=str(data).strip(),
                 raw_payload=payload,
             )
         except ValidationError as exc:
