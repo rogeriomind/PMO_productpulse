@@ -73,3 +73,24 @@ class OutboundService:
         return self.send(
             conversation, ChannelOutboundMessage(text=text, reply_markup=reply_markup)
         )
+
+    def send_typing(self, conversation: ConversationRecord) -> None:
+        provider = self.providers.get(conversation.provider)
+        if not provider:
+            return
+        try:
+            provider.send_chat_action(conversation.provider_chat_id, "typing")
+            self.audit_service.record(
+                "typing_indicator_sent",
+                "success",
+                conversation_id=conversation.id,
+                payload={"provider": conversation.provider},
+            )
+        except Exception as exc:
+            self.audit_service.record(
+                "typing_indicator_failed",
+                "failed",
+                conversation_id=conversation.id,
+                payload={"provider": conversation.provider},
+                error_message=str(exc),
+            )

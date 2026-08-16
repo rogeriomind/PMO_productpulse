@@ -75,6 +75,7 @@ class ConversationRecord(Base):
     provider_user_id: Mapped[str | None] = mapped_column(String(255))
     provider_user_name: Mapped[str | None] = mapped_column(String(255))
     provider_username: Mapped[str | None] = mapped_column(String(255))
+    last_delivered_ui_context_id: Mapped[str | None] = mapped_column(String(80))
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=utcnow
     )
@@ -214,6 +215,7 @@ class AgentDispatchRecord(Base):
     last_error: Mapped[str | None] = mapped_column(Text)
     agent_called_at: Mapped[datetime | None] = mapped_column(DateTime)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime)
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=utcnow
     )

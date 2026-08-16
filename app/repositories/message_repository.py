@@ -116,3 +116,31 @@ class MessageRepository:
         return self.db.scalar(
             select(func.max(MessageRecord.created_at)).where(*conditions)
         )
+
+    def has_newer_inbound(
+        self, conversation_id: str, source_message_ids: list[str]
+    ) -> bool:
+        source_ids = [message_id for message_id in source_message_ids if message_id]
+        if not source_ids:
+            return False
+
+        cutoff = self.db.scalar(
+            select(func.max(MessageRecord.created_at)).where(
+                MessageRecord.conversation_id == conversation_id,
+                MessageRecord.id.in_(source_ids),
+            )
+        )
+        if not cutoff:
+            return False
+
+        exists = self.db.scalar(
+            select(MessageRecord.id)
+            .where(
+                MessageRecord.conversation_id == conversation_id,
+                MessageRecord.direction == "inbound",
+                MessageRecord.created_at > cutoff,
+                MessageRecord.id.notin_(source_ids),
+            )
+            .limit(1)
+        )
+        return exists is not None

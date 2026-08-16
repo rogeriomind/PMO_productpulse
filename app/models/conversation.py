@@ -13,6 +13,7 @@ class ConversationDTO(BaseModel):
     provider_user_id: str | None = None
     provider_user_name: str | None = None
     provider_username: str | None = None
+    last_delivered_ui_context_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -55,6 +56,7 @@ class AgentDispatchDTO(BaseModel):
     last_error: str | None = None
     agent_called_at: datetime | None = None
     delivered_at: datetime | None = None
+    superseded_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

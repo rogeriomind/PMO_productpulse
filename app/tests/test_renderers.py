@@ -107,6 +107,23 @@ def test_numbered_list_uses_returned_options():
     assert outbound.reply_markup is None
 
 
+def test_numbered_list_does_not_duplicate_existing_numbers():
+    outbound = ChannelResponseRenderer().render(
+        "telegram",
+        _response(
+            {
+                "type": "numbered_list",
+                "options": [
+                    {"id": "1", "label": "1. Primeira", "callback_data": "task:1"},
+                ],
+            }
+        ),
+    )
+
+    assert "1. Primeira" in outbound.text
+    assert "1. 1. Primeira" not in outbound.text
+
+
 def test_callback_data_limit_is_validated():
     with pytest.raises(AgentApiContractError):
         ChannelResponseRenderer().render(

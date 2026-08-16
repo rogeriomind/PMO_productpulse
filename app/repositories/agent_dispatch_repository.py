@@ -90,6 +90,18 @@ class AgentDispatchRepository:
         self.db.refresh(record)
         return record
 
+    def mark_superseded(self, dispatch_id: str) -> AgentDispatchRecord | None:
+        record = self.get(dispatch_id)
+        if not record:
+            return None
+        record.status = "superseded"
+        record.superseded_at = utcnow()
+        record.last_error = None
+        record.updated_at = utcnow()
+        self.db.commit()
+        self.db.refresh(record)
+        return record
+
     def mark_retry(
         self, dispatch_id: str, error_message: str
     ) -> AgentDispatchRecord | None:

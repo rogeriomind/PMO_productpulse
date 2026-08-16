@@ -72,6 +72,7 @@ class AgentEventMapper:
                 source_message_ids=source_ids,
                 callback_query_id=message.callback_query_id,
                 transcribed=True if transcribed else None,
+                extra=_metadata_extra(conversation),
             ),
         )
 
@@ -98,7 +99,9 @@ class AgentEventMapper:
         if callback_data:
             if callback_data.startswith("menu:"):
                 return "menu_selection"
-            if callback_data.startswith(("status:task:", "update:task:", "task:")):
+            if callback_data.startswith(
+                ("status:task:", "status:id:", "update:task:", "task:")
+            ):
                 return "task_selection"
             if callback_data.startswith("confirmation:"):
                 return "confirmation"
@@ -114,3 +117,8 @@ class AgentEventMapper:
         if text == "/start" or text.startswith("/start "):
             return "welcome"
         return "text"
+
+
+def _metadata_extra(conversation: ConversationRecord) -> dict[str, str]:
+    context_id = getattr(conversation, "last_delivered_ui_context_id", None)
+    return {"ui_context_id": context_id} if context_id else {}

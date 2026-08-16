@@ -32,6 +32,7 @@ class AgentUi(BaseModel):
 
     type: AgentUiType = "none"
     options: list[AgentUiOption] = Field(default_factory=list)
+    context_id: str | None = None
 
 
 class AgentResponse(BaseModel):
