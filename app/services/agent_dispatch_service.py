@@ -59,6 +59,16 @@ class AgentDispatchService:
     def mark_delivered(self, dispatch_id: str) -> None:
         self.repository.mark_delivered(dispatch_id)
 
+    def mark_superseded(self, dispatch_id: str) -> None:
+        dispatch = self.repository.mark_superseded(dispatch_id)
+        if dispatch:
+            self.audit_service.record(
+                "agent_delivery_suppressed",
+                "superseded",
+                conversation_id=dispatch.conversation_id,
+                payload=self._audit_payload(dispatch),
+            )
+
     def mark_retry(self, dispatch_id: str, error_message: str) -> None:
         self.repository.mark_retry(dispatch_id, error_message)
 

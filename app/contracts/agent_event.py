@@ -42,6 +42,7 @@ class AgentEventMetadata(BaseModel):
     source_message_ids: list[str] = Field(default_factory=list)
     callback_query_id: str | None = None
     transcribed: bool | None = None
+    extra: dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentEvent(BaseModel):

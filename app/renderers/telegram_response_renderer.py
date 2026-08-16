@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict
 
 from app.clients.agent_api_client import AgentApiContractError
@@ -44,7 +45,11 @@ class TelegramResponseRenderer:
         if not response.ui.options:
             return response.message
         options = "\n".join(
-            f"{index}. {option.label}"
+            f"{index}. {_strip_leading_number(option.label)}"
             for index, option in enumerate(response.ui.options, start=1)
         )
         return f"{response.message}\n\n{options}"
+
+
+def _strip_leading_number(label: str) -> str:
+    return re.sub(r"^\s*\d+\.\s*", "", label).strip()

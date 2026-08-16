@@ -52,3 +52,20 @@ class TelegramMessageProvider(MessageProvider):
             )
             raise RuntimeError(message)
         return data
+
+    def send_chat_action(self, chat_id: str, action: str = "typing") -> dict:
+        payload = {"chat_id": chat_id, "action": action}
+        if not self.settings.telegram_bot_token:
+            return {"ok": True, "mock": True, **payload}
+
+        url = f"https://api.telegram.org/bot{self.settings.telegram_bot_token}/sendChatAction"
+        response = self.client.post(url, json=payload)
+        data = response.json() if response.content else {}
+        if response.status_code >= 400:
+            message = (
+                data.get("description")
+                or data.get("message")
+                or "Falha ao enviar typing Telegram"
+            )
+            raise RuntimeError(message)
+        return data

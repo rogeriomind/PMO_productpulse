@@ -33,6 +33,8 @@ from app.services.queue_service import QueueService
 
 logger = logging.getLogger(__name__)
 
+NON_SUPPRESSIBLE_STATUSES = {"awaiting_confirmation", "completed", "cancelled"}
+
 
 class WorkerProcessingError(RuntimeError):
     def __init__(
@@ -109,6 +111,7 @@ class MessageWorker:
             )
             return {"processed": False, "reason": "missing_records"}
 
+        self._send_typing_indicator(conversation)
         try:
             return self._handle_message(conversation, message, queue_item.id)
         except WorkerProcessingError as exc:
@@ -247,11 +250,13 @@ class MessageWorker:
         dispatch = self.agent_dispatch_service.get_or_create(
             conversation.id, agent_event
         )
-        if dispatch.status == "delivered":
+        if dispatch.status in {"delivered", "superseded"}:
             self.queue_service.mark_done_many(queue_ids)
             return {
                 "processed": True,
-                "reason": "already_delivered",
+                "reason": "already_delivered"
+                if dispatch.status == "delivered"
+                else "already_superseded",
                 "dispatch_id": dispatch.id,
             }
 
@@ -265,12 +270,39 @@ class MessageWorker:
                     phase="render",
                 ) from exc
         else:
+            self._send_typing_indicator(conversation)
             agent_response = self._call_agent(
                 dispatch.id, conversation.id, message.id, agent_event
             )
             dispatch = self.agent_dispatch_service.save_response(
                 dispatch, agent_response
             )
+
+        if self._should_suppress_response(
+            conversation.id,
+            source_message_ids,
+            agent_event.message_type,
+            agent_response,
+        ):
+            self.agent_dispatch_service.mark_superseded(dispatch.id)
+            self.queue_service.mark_done_many(queue_ids)
+            self.audit_service.record(
+                "queue_done",
+                "success",
+                conversation_id=conversation.id,
+                message_id=message.id,
+                payload={
+                    "queue_ids": queue_ids,
+                    "dispatch_id": dispatch.id,
+                    "suppressed": True,
+                },
+            )
+            return {
+                "processed": True,
+                "reason": "superseded",
+                "dispatch_id": dispatch.id,
+                "queue_ids": queue_ids,
+            }
 
         outbound = self._render_response(
             dispatch.id,
@@ -279,7 +311,7 @@ class MessageWorker:
             conversation.provider,
             agent_response,
         )
-        self._deliver_response(dispatch.id, conversation, outbound)
+        self._deliver_response(dispatch.id, conversation, outbound, agent_response)
         self.queue_service.mark_done_many(queue_ids)
         self.audit_service.record(
             "queue_done",
@@ -387,7 +419,9 @@ class MessageWorker:
         )
         return outbound
 
-    def _deliver_response(self, dispatch_id: str, conversation, outbound) -> None:
+    def _deliver_response(
+        self, dispatch_id: str, conversation, outbound, agent_response: AgentResponse
+    ) -> None:
         self.agent_dispatch_service.mark_delivering(dispatch_id)
         self.audit_service.record(
             "agent_delivery_started",
@@ -410,6 +444,10 @@ class MessageWorker:
                 str(exc), dispatch_id=dispatch_id, phase="delivery"
             ) from exc
         self.agent_dispatch_service.mark_delivered(dispatch_id)
+        if agent_response.ui.context_id:
+            self.conversation_repository.set_last_delivered_ui_context_id(
+                conversation.id, agent_response.ui.context_id
+            )
         self.audit_service.record(
             "agent_delivery_succeeded",
             "success",
@@ -438,6 +476,26 @@ class MessageWorker:
                 payload={"technical_fallback": True},
                 error_message=str(exc),
             )
+
+    def _should_suppress_response(
+        self,
+        conversation_id: str,
+        source_message_ids: list[str],
+        message_type: str,
+        agent_response: AgentResponse,
+    ) -> bool:
+        if message_type == "confirmation":
+            return False
+        if agent_response.status in NON_SUPPRESSIBLE_STATUSES:
+            return False
+        if agent_response.requires_confirmation or agent_response.confirmation:
+            return False
+        return self.message_repository.has_newer_inbound(
+            conversation_id, source_message_ids
+        )
+
+    def _send_typing_indicator(self, conversation) -> None:
+        self.outbound_service.send_typing(conversation)
 
 
 def run_forever() -> None:

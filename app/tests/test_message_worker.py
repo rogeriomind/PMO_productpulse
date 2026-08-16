@@ -36,6 +36,7 @@ class FailingProvider:
 class SuccessProvider:
     def __init__(self):
         self.sent = []
+        self.typing = []
 
     def send_text(
         self, chat_id: str, text: str, reply_markup: dict | None = None
@@ -49,6 +50,10 @@ class SuccessProvider:
             "text": text,
             "reply_markup": reply_markup,
         }
+
+    def send_chat_action(self, chat_id: str, action: str = "typing") -> dict:
+        self.typing.append({"chat_id": chat_id, "action": action})
+        return {"ok": True, "chat_id": chat_id, "action": action}
 
 
 def _settings(**overrides):
@@ -132,6 +137,7 @@ def test_worker_processes_text_and_calls_agent(db):
             "Escolha uma opção da IA",
             {
                 "type": "inline_keyboard",
+                "context_id": "status-context-1",
                 "options": [
                     {"id": "status", "label": "Status", "callback_data": "menu:status"}
                 ],
@@ -142,6 +148,7 @@ def test_worker_processes_text_and_calls_agent(db):
     result = MessageWorker(db, _settings(), fake_client).process_once()
 
     messages = _messages(db, conversation.id)
+    conversation = ConversationRepository(db).get(conversation.id)
     dispatches = AgentDispatchRepository(db).list_by_conversation(conversation.id)
     assert result["processed"] is True
     assert fake_client.calls[0].message_type == "text"
@@ -154,6 +161,7 @@ def test_worker_processes_text_and_calls_agent(db):
         == "menu:status"
     )
     assert dispatches[0].status == "delivered"
+    assert conversation.last_delivered_ui_context_id == "status-context-1"
     assert db.execute(text("SELECT COUNT(*) FROM task_actions")).scalar_one() == 0
 
 
@@ -247,3 +255,56 @@ def test_worker_retries_agent_failures_without_local_business_fallback(db):
         for message in _messages(db, conversation.id)
         if message.direction == "outbound"
     ]
+
+
+def test_worker_suppresses_stale_read_response_when_newer_input_exists(db):
+    conversation, _, _ = _enqueue(
+        db, "slow-1", text_value=None, callback_data="menu:status"
+    )
+    _enqueue(db, "slow-2", text_value="Olá")
+    fake_client = FakeAgentApiClient(
+        _agent_response("Lista antiga", {"type": "inline_keyboard", "options": []})
+    )
+    worker = MessageWorker(db, _settings(), fake_client)
+    success_provider = SuccessProvider()
+    worker.outbound_service.providers["telegram"] = success_provider
+
+    result = worker.process_once()
+
+    dispatch = AgentDispatchRepository(db).list_by_conversation(conversation.id)[0]
+    queue_statuses = (
+        db.execute(text("SELECT status FROM message_queue ORDER BY created_at"))
+        .scalars()
+        .all()
+    )
+    assert result["reason"] == "superseded"
+    assert dispatch.status == "superseded"
+    assert success_provider.sent == []
+    assert queue_statuses == ["done", "pending"]
+
+
+def test_worker_does_not_suppress_confirmation_response(db):
+    conversation, _, _ = _enqueue(db, "write-1", text_value="Criar atividade")
+    _enqueue(db, "write-2", text_value="Olá")
+    fake_client = FakeAgentApiClient(
+        _agent_response(
+            "Confirma?",
+            {"type": "confirmation", "options": []},
+        ).model_copy(
+            update={
+                "status": "awaiting_confirmation",
+                "requires_confirmation": True,
+                "confirmation": {"id": "pending-1"},
+            }
+        )
+    )
+    worker = MessageWorker(db, _settings(), fake_client)
+    success_provider = SuccessProvider()
+    worker.outbound_service.providers["telegram"] = success_provider
+
+    result = worker.process_once()
+
+    dispatch = AgentDispatchRepository(db).list_by_conversation(conversation.id)[0]
+    assert result["processed"] is True
+    assert dispatch.status == "delivered"
+    assert success_provider.sent[0]["text"] == "Confirma?"

@@ -51,3 +51,16 @@ class ConversationRepository:
 
     def get(self, conversation_id: str) -> ConversationRecord | None:
         return self.db.get(ConversationRecord, conversation_id)
+
+    def set_last_delivered_ui_context_id(
+        self, conversation_id: str, ui_context_id: str | None
+    ) -> ConversationRecord | None:
+        conversation = self.get(conversation_id)
+        if not conversation:
+            return None
+        if conversation.last_delivered_ui_context_id == ui_context_id:
+            return conversation
+        conversation.last_delivered_ui_context_id = ui_context_id
+        self.db.commit()
+        self.db.refresh(conversation)
+        return conversation

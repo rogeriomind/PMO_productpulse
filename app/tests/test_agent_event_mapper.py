@@ -96,6 +96,18 @@ def test_thread_id_is_deterministic(db):
     assert second.request_id == first.request_id
 
 
+def test_mapper_sends_last_delivered_ui_context(db):
+    conversation, message = _message(db, "2")
+    ConversationRepository(db).set_last_delivered_ui_context_id(
+        conversation.id, "status-context-1"
+    )
+    conversation = ConversationRepository(db).get(conversation.id)
+
+    event = AgentEventMapper(_settings()).map(conversation, message, "2")
+
+    assert event.metadata.extra == {"ui_context_id": "status-context-1"}
+
+
 def test_debounce_event_id_is_stable():
     mapper = AgentEventMapper(_settings())
 
