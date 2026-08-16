@@ -149,3 +149,13 @@ class AgentDispatchRepository:
                 .order_by(AgentDispatchRecord.created_at)
             )
         )
+
+    def latest_by_conversation(
+        self, conversation_id: str
+    ) -> AgentDispatchRecord | None:
+        return self.db.scalar(
+            select(AgentDispatchRecord)
+            .where(AgentDispatchRecord.conversation_id == conversation_id)
+            .order_by(AgentDispatchRecord.created_at.desc())
+            .limit(1)
+        )

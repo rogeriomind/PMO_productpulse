@@ -1,4 +1,5 @@
 import logging
+import random
 import time
 from typing import Any
 from urllib.parse import urljoin
@@ -50,7 +51,17 @@ class AgentApiClient:
     ):
         self.settings = settings or get_settings()
         self.client = client or httpx.Client(
-            timeout=self.settings.agent_api_timeout_seconds
+            timeout=httpx.Timeout(
+                connect=5.0,
+                read=self.settings.agent_api_timeout_seconds,
+                write=10.0,
+                pool=5.0,
+            ),
+            limits=httpx.Limits(
+                max_connections=20,
+                max_keepalive_connections=10,
+                keepalive_expiry=30.0,
+            ),
         )
 
     def send_event(self, event: AgentEvent) -> AgentResponse:
@@ -111,6 +122,9 @@ class AgentApiClient:
             "Falha técnica ao chamar a API da IA."
         )
 
+    def close(self) -> None:
+        self.client.close()
+
     def _url(self) -> str:
         base = self.settings.agent_api_url.rstrip("/") + "/"
         endpoint = self.settings.agent_api_endpoint.lstrip("/")
@@ -164,4 +178,4 @@ class AgentApiClient:
     def _sleep(self, attempt: int) -> None:
         delay = self.settings.agent_api_retry_base_seconds * (2 ** (attempt - 1))
         if delay > 0:
-            time.sleep(delay)
+            time.sleep(delay + random.uniform(0, delay * 0.1))

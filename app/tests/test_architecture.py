@@ -59,3 +59,17 @@ def test_production_requires_agent_token():
 def test_production_requires_explicit_agent_url():
     with pytest.raises(ValueError):
         Settings(app_env="production", agent_api_token="token")
+
+
+def test_performance_defaults_are_low_latency():
+    settings = Settings(app_env="test", agent_api_token="token")
+
+    assert settings.debounce_seconds == 1
+    assert settings.debounce_max_seconds == 2
+    assert settings.worker_sleep_seconds == 0.2
+    assert settings.worker_backoff_max_seconds == 1
+    assert settings.worker_wakeup_mode == "polling"
+    assert settings.queue_notify_enabled is False
+    assert settings.debounce_adaptive_enabled is False
+    assert settings.worker_fallback_poll_seconds == 10
+    assert settings.worker_max_drain_batch == 100

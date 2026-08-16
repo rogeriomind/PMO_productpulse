@@ -11,7 +11,17 @@ from app.services.audit_service import AuditService
 from app.services.debounce_service import DebounceService
 
 
-def _service(db, seconds=5):
+def _service(
+    db,
+    seconds=5,
+    max_seconds=10,
+    *,
+    adaptive_enabled=False,
+    min_seconds=0.7,
+    increment_seconds=0.4,
+    max_messages=8,
+    adaptive_max_seconds=2.5,
+):
     message_repo = MessageRepository(db)
     queue_repo = QueueRepository(db)
     return DebounceService(
@@ -20,6 +30,12 @@ def _service(db, seconds=5):
         queue_repo,
         AuditService(AuditRepository(db)),
         seconds,
+        max_seconds,
+        adaptive_enabled=adaptive_enabled,
+        debounce_min_seconds=min_seconds,
+        debounce_increment_seconds=increment_seconds,
+        debounce_max_messages=max_messages,
+        adaptive_max_seconds=adaptive_max_seconds,
     )
 
 
@@ -68,6 +84,66 @@ def test_waits_inside_debounce_window(db):
 
     assert decision.should_wait is True
     assert decision.remaining_seconds > 0
+
+
+def test_max_debounce_window_flushes_even_after_recent_fragment(db):
+    first = utcnow() - timedelta(seconds=2.5)
+    recent = utcnow() - timedelta(seconds=0.2)
+    conversation, _, _ = _create_text(db, "m1", "Cria uma atividade", first)
+    _create_text(db, "m2", "para revisar a integração", recent)
+
+    decision = _service(db, seconds=1, max_seconds=2).assess_text(conversation.id)
+
+    assert decision.should_wait is False
+    assert decision.combined_text == "Cria uma atividade para revisar a integração"
+
+
+def test_recent_fragments_wait_until_base_window(db):
+    first = utcnow() - timedelta(seconds=0.6)
+    recent = utcnow() - timedelta(seconds=0.2)
+    conversation, _, _ = _create_text(db, "m1", "Cria uma tarefa", first)
+    _create_text(db, "m2", "para amanhã", recent)
+
+    decision = _service(db, seconds=1, max_seconds=2).assess_text(conversation.id)
+
+    assert decision.should_wait is True
+    assert 0 < decision.remaining_seconds <= 1
+
+
+def test_adaptive_single_message_uses_minimum_window(db):
+    conversation, message, _ = _create_text(db, "adaptive-1", "Status")
+
+    decision = _service(db, adaptive_enabled=True).assess_text(
+        conversation.id, message.id
+    )
+
+    assert decision.should_wait is True
+    assert 0 < decision.remaining_seconds <= 0.7
+
+
+def test_adaptive_window_extends_with_fragments(db):
+    first = utcnow() - timedelta(seconds=0.8)
+    recent = utcnow() - timedelta(seconds=0.1)
+    conversation, _, _ = _create_text(db, "adaptive-2", "Cria tarefa", first)
+    _create_text(db, "adaptive-3", "para sexta", recent)
+
+    decision = _service(db, adaptive_enabled=True).assess_text(conversation.id)
+
+    assert decision.should_wait is True
+    assert 0.7 < decision.remaining_seconds <= 1.1
+
+
+def test_adaptive_max_messages_flushes_immediately(db):
+    conversation = None
+    for index in range(8):
+        conversation, _, _ = _create_text(db, f"adaptive-max-{index}", f"parte {index}")
+
+    decision = _service(db, adaptive_enabled=True, max_messages=8).assess_text(
+        conversation.id
+    )
+
+    assert decision.should_wait is False
+    assert decision.combined_text.startswith("parte 0 parte 1")
 
 
 def test_audio_forces_flush_of_pending_text(db):

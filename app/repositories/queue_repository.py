@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from sqlalchemy import and_, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.database.connection import MessageRecord, QueueRecord, utcnow
 
@@ -21,6 +21,7 @@ class QueueRepository:
 
     def lock_next(self, lock_seconds: int) -> QueueRecord | None:
         now = utcnow()
+        processing_queue = aliased(QueueRecord)
         stmt = (
             select(QueueRecord)
             .where(
@@ -28,6 +29,13 @@ class QueueRepository:
                 or_(
                     QueueRecord.locked_until.is_(None), QueueRecord.locked_until <= now
                 ),
+                ~select(processing_queue.id)
+                .where(
+                    processing_queue.conversation_id == QueueRecord.conversation_id,
+                    processing_queue.status == "processing",
+                    processing_queue.locked_until > now,
+                )
+                .exists(),
             )
             .order_by(QueueRecord.created_at)
             .with_for_update(skip_locked=True)
@@ -39,6 +47,7 @@ class QueueRepository:
         record.status = "processing"
         record.attempts += 1
         record.locked_until = now + timedelta(seconds=lock_seconds)
+        record.queue_locked_at = now
         record.error_message = None
         self.db.commit()
         self.db.refresh(record)
@@ -67,7 +76,7 @@ class QueueRepository:
         queue_id: str,
         error_message: str,
         max_attempts: int,
-        delay_seconds: int = 0,
+        delay_seconds: float = 0,
     ) -> str:
         record = self.db.get(QueueRecord, queue_id)
         if not record:
@@ -85,7 +94,7 @@ class QueueRepository:
         self.db.commit()
         return result
 
-    def postpone(self, queue_id: str, reason: str, delay_seconds: int) -> None:
+    def postpone(self, queue_id: str, reason: str, delay_seconds: float) -> None:
         record = self.db.get(QueueRecord, queue_id)
         if not record:
             return
@@ -102,6 +111,49 @@ class QueueRepository:
         record.locked_until = None
         record.error_message = error_message
         self.db.commit()
+
+    def mark_debounce_started_many(self, queue_ids: list[str]) -> None:
+        now = utcnow()
+        for record in self.list_by_ids(queue_ids):
+            if not record.debounce_started_at:
+                record.debounce_started_at = now
+        self.db.commit()
+
+    def mark_debounce_finished_many(self, queue_ids: list[str]) -> None:
+        now = utcnow()
+        for record in self.list_by_ids(queue_ids):
+            record.debounce_finished_at = now
+        self.db.commit()
+
+    def mark_ia_request_started_many(self, queue_ids: list[str]) -> None:
+        now = utcnow()
+        for record in self.list_by_ids(queue_ids):
+            record.ia_request_started_at = now
+        self.db.commit()
+
+    def mark_ia_response_received_many(self, queue_ids: list[str]) -> None:
+        now = utcnow()
+        for record in self.list_by_ids(queue_ids):
+            record.ia_response_received_at = now
+        self.db.commit()
+
+    def mark_response_sent_many(self, queue_ids: list[str]) -> None:
+        now = utcnow()
+        for record in self.list_by_ids(queue_ids):
+            record.response_sent_at = now
+        self.db.commit()
+
+    def list_by_ids(self, queue_ids: list[str]) -> list[QueueRecord]:
+        unique_ids = list(dict.fromkeys(queue_ids))
+        if not unique_ids:
+            return []
+        return list(
+            self.db.scalars(
+                select(QueueRecord)
+                .where(QueueRecord.id.in_(unique_ids))
+                .order_by(QueueRecord.created_at)
+            )
+        )
 
     def list_open_text_items(
         self, conversation_id: str, exclude_queue_id: str | None = None

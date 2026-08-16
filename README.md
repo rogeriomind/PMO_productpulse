@@ -14,14 +14,15 @@ flowchart LR
   B --> C[InboundNormalizer]
   C --> D[Rate limit e dedupe]
   D --> E[(PostgreSQL)]
-  E --> F[MessageWorker]
-  F --> G[Debounce / Preprocessamento]
-  G --> H[AgentEventMapper]
-  H --> I[AgentApiClient]
-  I --> J[API externa da IA PMO]
-  J --> K[ChannelResponseRenderer]
-  K --> L[Provider do canal]
-  L --> A
+  E -->|COMMIT + NOTIFY opcional| F[Worker Runtime persistente]
+  F --> G[MessageWorker DB-scoped]
+  G --> H[Debounce adaptativo / Preprocessamento]
+  H --> I[AgentEventMapper]
+  I --> J[AgentApiClient]
+  J --> K[API externa da IA PMO]
+  K --> L[ChannelResponseRenderer]
+  L --> M[Provider do canal]
+  M --> A
 ```
 
 ## Configuração
@@ -37,6 +38,19 @@ AGENT_TIMEZONE=America/Sao_Paulo
 ```
 
 Em produção, `AGENT_API_URL` e `AGENT_API_TOKEN` são obrigatórios. O token usa `SecretStr` e não deve aparecer em logs.
+
+Controles de rollout:
+
+```env
+QUEUE_NOTIFY_ENABLED=false
+DEBOUNCE_ADAPTIVE_ENABLED=false
+WORKER_FALLBACK_POLL_SECONDS=10
+WORKER_MAX_DRAIN_BATCH=100
+```
+
+Com `QUEUE_NOTIFY_ENABLED=true`, o webhook persiste a mensagem/fila e emite `pg_notify` com apenas o `queue_id`. O worker usa `LISTEN/NOTIFY` para acordar, mas sempre consulta a fila PostgreSQL com `FOR UPDATE SKIP LOCKED`.
+
+Com `DEBOUNCE_ADAPTIVE_ENABLED=true`, textos usam uma janela dinâmica controlada por `DEBOUNCE_MIN_MS`, `DEBOUNCE_INCREMENT_MS`, `DEBOUNCE_MAX_MS` e `DEBOUNCE_MAX_MESSAGES`. Callbacks, comandos e confirmações pendentes bypassam o debounce.
 
 ## Docker
 

@@ -10,6 +10,7 @@ from app.repositories.queue_repository import QueueRepository
 from app.services.audit_service import AuditService
 from app.services.inbound_normalizer import InboundNormalizer
 from app.services.outbound_service import OutboundService
+from app.services.queue_notification_service import QueueNotificationService
 from app.services.queue_service import QueueService
 from app.services.rate_limit_service import RateLimitService
 
@@ -30,6 +31,7 @@ class InboundService:
             QueueRepository(db),
             lock_seconds=settings.queue_lock_seconds,
             max_attempts=settings.max_queue_attempts,
+            notification_service=QueueNotificationService(db, settings),
         )
         self.normalizer = InboundNormalizer()
         self.telegram_provider = TelegramMessageProvider(settings)
@@ -94,7 +96,10 @@ class InboundService:
             "success",
             conversation_id=conversation.id,
             message_id=message.id,
-            payload={"message_type": message.message_type},
+            payload={
+                "message_type": message.message_type,
+                "message_received_at": message.created_at.isoformat(),
+            },
         )
         queue_item = self.queue_service.enqueue(message.id, conversation.id)
         self.audit_service.record(
@@ -102,7 +107,10 @@ class InboundService:
             "success",
             conversation_id=conversation.id,
             message_id=message.id,
-            payload={"queue_id": queue_item.id},
+            payload={
+                "queue_id": queue_item.id,
+                "queue_created_at": queue_item.created_at.isoformat(),
+            },
         )
         return {
             "status": "queued",

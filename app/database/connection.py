@@ -136,6 +136,12 @@ class QueueRecord(Base):
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime)
+    queue_locked_at: Mapped[datetime | None] = mapped_column(DateTime)
+    debounce_started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    debounce_finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    ia_request_started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    ia_response_received_at: Mapped[datetime | None] = mapped_column(DateTime)
+    response_sent_at: Mapped[datetime | None] = mapped_column(DateTime)
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=utcnow
