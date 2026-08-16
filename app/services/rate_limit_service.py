@@ -20,13 +20,18 @@ class RateLimitService:
 
     def is_allowed(self, conversation_id: str) -> bool:
         since = utcnow() - timedelta(seconds=self.window_seconds)
-        recent_count = self.message_repository.count_recent_inbound(conversation_id, since)
+        recent_count = self.message_repository.count_recent_inbound(
+            conversation_id, since
+        )
         allowed = recent_count < self.max_messages
         if not allowed:
             self.audit_service.record(
                 "rate_limited",
                 "blocked",
                 conversation_id=conversation_id,
-                payload={"recent_count": recent_count, "window_seconds": self.window_seconds},
+                payload={
+                    "recent_count": recent_count,
+                    "window_seconds": self.window_seconds,
+                },
             )
         return allowed

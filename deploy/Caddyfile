@@ -6,3 +6,7 @@
 telegram.productpulse.com.br {
   reverse_proxy api:8000
 }
+
+digax.productpulse.com.br {
+  reverse_proxy 172.19.0.1:8088
+}

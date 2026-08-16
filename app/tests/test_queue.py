@@ -5,7 +5,9 @@ from app.repositories.queue_repository import QueueRepository
 
 
 def _message(db):
-    conversation = ConversationRepository(db).get_or_create("telegram", "chat-1", "user-1")
+    conversation = ConversationRepository(db).get_or_create(
+        "telegram", "chat-1", "user-1"
+    )
     message = MessageRepository(db).create_inbound(
         conversation.id,
         NormalizedMessage(
@@ -13,7 +15,9 @@ def _message(db):
             provider_chat_id="chat-1",
             provider_user_id="user-1",
             provider_message_id="msg-1",
-            message_type="text",
+            provider_update_id="1",
+            event_id="telegram:update:1",
+            content_type="text",
             text="Cria atividade",
             raw_payload={},
         ),
@@ -40,7 +44,9 @@ def test_retry_then_lock_again(db):
     item = queue.enqueue(message.id, conversation.id)
     locked = queue.lock_next(lock_seconds=30)
 
-    result = queue.mark_retry(locked.id, "erro temporário", max_attempts=3, delay_seconds=0)
+    result = queue.mark_retry(
+        locked.id, "erro temporário", max_attempts=3, delay_seconds=0
+    )
     locked_again = queue.lock_next(lock_seconds=30)
 
     assert result == "retry"

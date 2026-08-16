@@ -11,7 +11,9 @@ class MessageRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def exists_provider_message(self, provider: str, provider_message_id: str | None) -> bool:
+    def exists_provider_message(
+        self, provider: str, provider_message_id: str | None
+    ) -> bool:
         if not provider_message_id:
             return False
         exists = self.db.scalar(
@@ -22,15 +24,30 @@ class MessageRepository:
         )
         return exists is not None
 
-    def create_inbound(self, conversation_id: str, message: NormalizedMessage) -> MessageRecord:
+    def exists_event(self, event_id: str | None) -> bool:
+        if not event_id:
+            return False
+        exists = self.db.scalar(
+            select(MessageRecord.id).where(MessageRecord.event_id == event_id)
+        )
+        return exists is not None
+
+    def create_inbound(
+        self, conversation_id: str, message: NormalizedMessage
+    ) -> MessageRecord:
         record = MessageRecord(
             conversation_id=conversation_id,
             provider=message.provider,
             provider_message_id=message.provider_message_id,
+            provider_update_id=message.provider_update_id,
+            event_id=message.event_id,
             direction="inbound",
-            message_type=message.message_type,
+            message_type=message.content_type,
+            content_type=message.content_type,
             raw_payload=message.raw_payload,
             normalized_text=message.text,
+            callback_query_id=message.callback_query_id,
+            callback_data=message.callback_data,
             media_file_id=message.media_file_id,
             media_url=message.media_url,
         )
@@ -50,8 +67,11 @@ class MessageRepository:
             conversation_id=conversation_id,
             provider=provider,
             provider_message_id=None,
+            provider_update_id=None,
+            event_id=None,
             direction="outbound",
             message_type="text",
+            content_type="text",
             raw_payload=raw_payload or {},
             normalized_text=text,
         )
@@ -84,11 +104,15 @@ class MessageRepository:
             or 0
         )
 
-    def last_inbound_at(self, conversation_id: str, message_type: str | None = None) -> datetime | None:
+    def last_inbound_at(
+        self, conversation_id: str, message_type: str | None = None
+    ) -> datetime | None:
         conditions = [
             MessageRecord.conversation_id == conversation_id,
             MessageRecord.direction == "inbound",
         ]
         if message_type:
             conditions.append(MessageRecord.message_type == message_type)
-        return self.db.scalar(select(func.max(MessageRecord.created_at)).where(*conditions))
+        return self.db.scalar(
+            select(func.max(MessageRecord.created_at)).where(*conditions)
+        )

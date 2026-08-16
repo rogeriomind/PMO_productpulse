@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,15 +30,46 @@ class Settings(BaseSettings):
     worker_sleep_seconds: int = Field(default=2, alias="WORKER_SLEEP_SECONDS")
 
     rate_limit_max_messages: int = Field(default=20, alias="RATE_LIMIT_MAX_MESSAGES")
-    rate_limit_window_seconds: int = Field(default=60, alias="RATE_LIMIT_WINDOW_SECONDS")
+    rate_limit_window_seconds: int = Field(
+        default=60, alias="RATE_LIMIT_WINDOW_SECONDS"
+    )
 
-    pmo_api_url: str = Field(default="http://localhost:3333/api", alias="PMO_API_URL")
-    pmo_api_email: str = Field(default="rogerio@pmo.local", alias="PMO_API_EMAIL")
-    pmo_api_password: str = Field(default="123456", alias="PMO_API_PASSWORD")
-    pmo_api_timeout_seconds: int = Field(default=10, alias="PMO_API_TIMEOUT_SECONDS")
-    pmo_api_retry_attempts: int = Field(default=2, alias="PMO_API_RETRY_ATTEMPTS")
+    agent_api_url: str = Field(
+        default="http://pmo-ai-agent-api:8010", alias="AGENT_API_URL"
+    )
+    agent_api_token: SecretStr = Field(default=SecretStr(""), alias="AGENT_API_TOKEN")
+    agent_api_timeout_seconds: int = Field(
+        default=30, alias="AGENT_API_TIMEOUT_SECONDS"
+    )
+    agent_api_retry_attempts: int = Field(default=3, alias="AGENT_API_RETRY_ATTEMPTS")
+    agent_api_retry_base_seconds: float = Field(
+        default=1, alias="AGENT_API_RETRY_BASE_SECONDS"
+    )
+    agent_api_endpoint: str = Field(
+        default="/v2/agent/events", alias="AGENT_API_ENDPOINT"
+    )
 
-    board_provider: str = Field(default="pmo_board", alias="BOARD_PROVIDER")
+    agent_tenant_id: str = Field(default="default", alias="AGENT_TENANT_ID")
+    agent_default_project_id: str | None = Field(
+        default=None, alias="AGENT_DEFAULT_PROJECT_ID"
+    )
+    agent_timezone: str = Field(default="America/Sao_Paulo", alias="AGENT_TIMEZONE")
+    agent_technical_fallback_message: str = Field(
+        default="O serviço está temporariamente indisponível. Tente novamente em alguns instantes.",
+        alias="AGENT_TECHNICAL_FALLBACK_MESSAGE",
+    )
+
+    @model_validator(mode="after")
+    def validate_production_agent_config(self) -> "Settings":
+        if self.app_env.lower() in {"prod", "production"}:
+            if (
+                "agent_api_url" not in self.model_fields_set
+                or not self.agent_api_url.strip()
+            ):
+                raise ValueError("AGENT_API_URL é obrigatório em produção")
+            if not self.agent_api_token.get_secret_value().strip():
+                raise ValueError("AGENT_API_TOKEN é obrigatório em produção")
+        return self
 
 
 @lru_cache

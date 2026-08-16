@@ -25,7 +25,9 @@ class QueueRepository:
             select(QueueRecord)
             .where(
                 QueueRecord.status.in_(("pending", "retry")),
-                or_(QueueRecord.locked_until.is_(None), QueueRecord.locked_until <= now),
+                or_(
+                    QueueRecord.locked_until.is_(None), QueueRecord.locked_until <= now
+                ),
             )
             .order_by(QueueRecord.created_at)
             .with_for_update(skip_locked=True)
@@ -60,7 +62,13 @@ class QueueRepository:
                 record.error_message = None
         self.db.commit()
 
-    def mark_retry(self, queue_id: str, error_message: str, max_attempts: int, delay_seconds: int = 0) -> str:
+    def mark_retry(
+        self,
+        queue_id: str,
+        error_message: str,
+        max_attempts: int,
+        delay_seconds: int = 0,
+    ) -> str:
         record = self.db.get(QueueRecord, queue_id)
         if not record:
             return "missing"
@@ -95,12 +103,15 @@ class QueueRepository:
         record.error_message = error_message
         self.db.commit()
 
-    def list_open_text_items(self, conversation_id: str, exclude_queue_id: str | None = None) -> list[tuple[QueueRecord, MessageRecord]]:
+    def list_open_text_items(
+        self, conversation_id: str, exclude_queue_id: str | None = None
+    ) -> list[tuple[QueueRecord, MessageRecord]]:
         conditions = [
             QueueRecord.conversation_id == conversation_id,
             QueueRecord.status.in_(self.OPEN_STATUSES),
             MessageRecord.direction == "inbound",
-            MessageRecord.message_type == "text",
+            MessageRecord.content_type == "text",
+            MessageRecord.callback_data.is_(None),
         ]
         if exclude_queue_id:
             conditions.append(QueueRecord.id != exclude_queue_id)

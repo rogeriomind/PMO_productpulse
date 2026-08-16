@@ -24,7 +24,9 @@ def _service(db, seconds=5):
 
 
 def _create_text(db, provider_message_id, text, created_at=None):
-    conversation = ConversationRepository(db).get_or_create("telegram", "chat-1", "user-1")
+    conversation = ConversationRepository(db).get_or_create(
+        "telegram", "chat-1", "user-1"
+    )
     message = MessageRepository(db).create_inbound(
         conversation.id,
         NormalizedMessage(
@@ -32,7 +34,9 @@ def _create_text(db, provider_message_id, text, created_at=None):
             provider_chat_id="chat-1",
             provider_user_id="user-1",
             provider_message_id=provider_message_id,
-            message_type="text",
+            provider_update_id=provider_message_id,
+            event_id=f"telegram:update:{provider_message_id}",
+            content_type="text",
             text=text,
             raw_payload={},
         ),
@@ -54,6 +58,7 @@ def test_groups_messages_after_window(db):
     assert decision.should_wait is False
     assert decision.combined_text == "Cria uma atividade para Maria"
     assert len(decision.queue_ids) == 2
+    assert len(decision.message_ids) == 2
 
 
 def test_waits_inside_debounce_window(db):
@@ -69,7 +74,9 @@ def test_audio_forces_flush_of_pending_text(db):
     old = utcnow() - timedelta(seconds=10)
     conversation, _, queue_item = _create_text(db, "m1", "Cria uma atividade", old)
 
-    decision = _service(db, seconds=5).flush_pending_texts(conversation.id, exclude_queue_id="audio-queue")
+    decision = _service(db, seconds=5).flush_pending_texts(
+        conversation.id, exclude_queue_id="audio-queue"
+    )
 
     assert decision is not None
     assert decision.combined_text == "Cria uma atividade"

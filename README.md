@@ -1,165 +1,100 @@
-# PMO Agent Message Pipeline MVP
+# PMO ProductPulse
 
-Backend FastAPI para receber mensagens de canais, normalizar eventos, aplicar rate limit e debounce, persistir tudo em PostgreSQL, processar em worker e integrar com a API do PMO Board. A inteligência é mockada por contrato e pode ser trocada depois por LangGraph, LangChain, OpenAI, Azure OpenAI ou outro motor.
+`PMO_productpulse` não é o agente. Ele é a camada intermediária entre Telegram/WhatsApp e a API externa da IA PMO.
 
-## Arquitetura
+Este serviço não contém LangGraph, não guarda memória de negócio, não decide fluxo conversacional, não interpreta confirmação e não acessa o PMO Board. O worker conhece canais, mensagens, fila e transporte. A API da IA conhece conversa, intenção, fluxo, confirmação e Board.
 
-Fluxo principal:
+## Responsabilidade
 
-1. `POST /webhooks/telegram` ou `POST /webhooks/whatsapp` recebe o payload.
-2. `InboundNormalizer` valida e normaliza a mensagem.
-3. `InboundService` aplica rate limit, persiste conversa/mensagem e enfileira no PostgreSQL.
-4. `MessageWorker` consome `message_queue` com lease, retry e debounce.
-5. `PreprocessingService` usa texto direto ou transcrição mockada para áudio.
-6. `MockAgentService` retorna JSON estruturado com intenção e `board_action`.
-7. `BoardService` consulta o PMO Board para queries ou cria `task_action` pendente para alterações.
-8. `ConfirmationService` executa somente após o usuário confirmar.
-9. `OutboundService` responde no canal correto e salva mensagens outbound.
-10. `AuditService` registra cada etapa em `audit_logs` e logs JSON.
+Fluxo de runtime:
 
-## Como rodar local
-
-Crie o arquivo de ambiente:
-
-```bash
-cp .env.example .env
+```mermaid
+flowchart LR
+  A[Telegram / WhatsApp] --> B[Webhook FastAPI]
+  B --> C[InboundNormalizer]
+  C --> D[Rate limit e dedupe]
+  D --> E[(PostgreSQL)]
+  E --> F[MessageWorker]
+  F --> G[Debounce / Preprocessamento]
+  G --> H[AgentEventMapper]
+  H --> I[AgentApiClient]
+  I --> J[API externa da IA PMO]
+  J --> K[ChannelResponseRenderer]
+  K --> L[Provider do canal]
+  L --> A
 ```
 
-Suba a stack:
+## Configuração
+
+Copie `.env.example` para `.env` e configure:
+
+```env
+AGENT_API_URL=http://pmo-ai-agent-api:8010
+AGENT_API_TOKEN=
+AGENT_API_ENDPOINT=/v2/agent/events
+AGENT_TENANT_ID=default
+AGENT_TIMEZONE=America/Sao_Paulo
+```
+
+Em produção, `AGENT_API_URL` e `AGENT_API_TOKEN` são obrigatórios. O token usa `SecretStr` e não deve aparecer em logs.
+
+## Docker
+
+Local:
 
 ```bash
 docker compose up --build
 ```
 
-## Deploy na Contabo
-
-O arquivo `docker-compose.prod.yml` sobe `api`, `worker`, PostgreSQL próprio e Caddy em HTTPS para `telegram.productpulse.com.br`.
-
-Na VPS, com o PMO Board já rodando no network Docker `board_pmo_default`:
+Produção:
 
 ```bash
-docker compose -f docker-compose.prod.yml up -d --build
+docker network create pmo_ai_network
+docker compose -f docker-compose.prod.yml up --build -d
 ```
 
-No `.env` da VPS, use:
+O worker fica nas redes `pmo_agent` e `pmo_ai_network`. A conexão direta com a rede do Board foi removida.
 
-```env
-DATABASE_URL=postgresql://pmo_agent:pmo_agent@agent-postgres:5432/pmo_agent
-PMO_API_URL=http://pmo-board-api:3333/api
-```
+## Migrations
 
-O Caddy publica apenas a porta `443`, mantendo a porta `80` livre para o PMO Board existente.
-
-Teste o healthcheck:
+API e worker executam:
 
 ```bash
-curl http://localhost:8000/health
+python -m app.database.migrate
 ```
 
-Resposta esperada:
+antes de iniciar. A tabela `schema_migrations` controla quais arquivos SQL já foram aplicados. A tabela `task_actions` permanece apenas como legado histórico e não recebe novos registros.
 
-```json
-{"status":"ok"}
-```
+## Endpoints
 
-## Configurar Telegram
+`GET /health` valida somente que o processo está vivo.
 
-Preencha no `.env`:
+`GET /ready` valida banco, fila e configuração da API da IA.
 
-```env
-TELEGRAM_BOT_TOKEN=seu-token
-TELEGRAM_WEBHOOK_SECRET=um-segredo-opcional
-```
+`POST /webhooks/telegram` recebe mensagens e callbacks Telegram. Callbacks recebem ACK imediato via `answerCallbackQuery`.
 
-Configure o webhook:
+`POST /webhooks/whatsapp` recebe eventos WhatsApp.
 
-```bash
-curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
-  -d "url=https://seu-dominio/webhooks/telegram" \
-  -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
-```
+`GET /debug/conversations/{conversation_id}` mostra conversa, mensagens e despachos para a API da IA.
 
-## Simular mensagem Telegram
-
-```bash
-curl -X POST http://localhost:8000/webhooks/telegram \
-  -H "Content-Type: application/json" \
-  -d '{
-    "update_id": 1,
-    "message": {
-      "message_id": 10,
-      "chat": {"id": 123},
-      "from": {"id": 456},
-      "text": "Cria uma atividade para Maria revisar o cronograma até sexta com prioridade alta."
-    }
-  }'
-```
-
-Depois processe manualmente em ambiente local:
-
-```bash
-curl -X POST http://localhost:8000/workers/process-message
-```
-
-O worker contínuo também roda no serviço `worker` do Docker Compose.
-
-## Conectar com PMO Board
-
-Configure no `.env`:
-
-```env
-PMO_API_URL=http://host.docker.internal:3333/api
-PMO_API_EMAIL=rogerio@pmo.local
-PMO_API_PASSWORD=123456
-```
-
-O `PmoBoardAuthProvider` faz login em `/auth/login`, mantém o JWT em memória e refaz login uma vez se receber `401`.
-
-## Testar criação e confirmação
-
-1. Envie a mensagem de criação pelo webhook.
-2. Rode o worker até receber a pergunta de confirmação.
-3. Envie uma nova mensagem Telegram com `confirmo`, `sim`, `ok` ou `pode fazer`.
-4. Rode o worker de novo.
-
-Antes da confirmação, a alteração fica em `task_actions` com status `pending_confirmation`. Após confirmação, o worker executa `POST /activities`.
-
-## Consultar debug e auditoria
-
-```bash
-curl http://localhost:8000/debug/conversations/{conversation_id}
-curl http://localhost:8000/debug/actions/{action_id}
-```
-
-Os logs de auditoria ficam em `audit_logs`; os logs da aplicação saem em JSON no stdout.
-
-## Rodar testes
+## Testes
 
 ```bash
 pytest
+python -m compileall app
 ```
 
-Os testes usam SQLite em memória e mocks HTTP para validar normalização, fila, debounce, agente mockado, provider do board e confirmação.
+Se o `ruff` estiver instalado:
 
-## Evoluir para IA real
-
-Substitua `MockAgentService` por uma implementação de `AgentService`. O contrato de saída deve continuar retornando:
-
-```json
-{
-  "intent": "create_task",
-  "confidence": 0.85,
-  "requires_confirmation": true,
-  "response_text": "string",
-  "board_action": {"type": "create_activity", "payload": {}},
-  "missing_fields": []
-}
+```bash
+ruff check app
+ruff format --check app
 ```
 
-## Evoluir para WhatsApp
+Documentação detalhada:
 
-Troque `WhatsAppMessageProviderMock` por um provider Meta real e mantenha o contrato `MessageProvider.send_text`. O webhook `/webhooks/whatsapp` e o normalizador já estão preparados para o adapter.
-
-## Trocar PMO Board por Jira, Trello, ClickUp ou Azure DevOps
-
-Implemente a interface `BoardProvider` em `app/providers/board_provider.py` e injete o novo provider no worker. A regra de negócio continua em `BoardService`.
+- [Worker Architecture](docs/worker-architecture.md)
+- [Agent API Integration](docs/agent-api-integration.md)
+- [Event Contract](docs/event-contract.md)
+- [Deployment With AI API](docs/deployment-with-ai-api.md)
+- [Remove Local Business Logic](docs/migration-remove-local-business-logic.md)

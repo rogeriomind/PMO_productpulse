@@ -14,7 +14,9 @@ from app.services.queue_service import QueueService
 from app.services.rate_limit_service import RateLimitService
 
 
-RATE_LIMIT_TEXT = "Recebi muitas mensagens em sequência. Aguarde alguns segundos e tente novamente."
+RATE_LIMIT_TEXT = (
+    "Recebi muitas mensagens em sequência. Aguarde alguns segundos e tente novamente."
+)
 
 
 class InboundService:
@@ -41,13 +43,26 @@ class InboundService:
         )
 
     def receive(self, provider: str, payload: dict) -> dict:
-        self.audit_service.record("webhook_received", "success", payload={"provider": provider})
+        self.audit_service.record(
+            "webhook_received", "success", payload={"provider": provider}
+        )
         try:
             normalized = self.normalizer.normalize(provider, payload)
-            self.audit_service.record("payload_validated", "success", payload={"provider": provider})
-            self.audit_service.record("message_normalized", "success", payload=normalized.model_dump(exclude={"raw_payload"}))
+            self.audit_service.record(
+                "payload_validated", "success", payload={"provider": provider}
+            )
+            self.audit_service.record(
+                "message_normalized",
+                "success",
+                payload=normalized.model_dump(exclude={"raw_payload"}),
+            )
         except ValueError as exc:
-            self.audit_service.record("payload_invalid", "failed", payload={"provider": provider}, error_message=str(exc))
+            self.audit_service.record(
+                "payload_invalid",
+                "failed",
+                payload={"provider": provider},
+                error_message=str(exc),
+            )
             return {"status": "invalid", "error": str(exc)}
 
         self._ack_telegram_callback(provider, payload)
@@ -56,6 +71,8 @@ class InboundService:
             normalized.provider,
             normalized.provider_chat_id,
             normalized.provider_user_id,
+            normalized.provider_user_name,
+            normalized.provider_username,
         )
 
         rate_limit = RateLimitService(
@@ -68,7 +85,7 @@ class InboundService:
             self.outbound_service.send_text(conversation, RATE_LIMIT_TEXT)
             return {"status": "rate_limited", "conversation_id": conversation.id}
 
-        if self.message_repository.exists_provider_message(normalized.provider, normalized.provider_message_id):
+        if self.message_repository.exists_event(normalized.event_id):
             return {"status": "duplicate", "conversation_id": conversation.id}
 
         message = self.message_repository.create_inbound(conversation.id, normalized)
@@ -87,7 +104,12 @@ class InboundService:
             message_id=message.id,
             payload={"queue_id": queue_item.id},
         )
-        return {"status": "queued", "conversation_id": conversation.id, "message_id": message.id, "queue_id": queue_item.id}
+        return {
+            "status": "queued",
+            "conversation_id": conversation.id,
+            "message_id": message.id,
+            "queue_id": queue_item.id,
+        }
 
     def _ack_telegram_callback(self, provider: str, payload: dict) -> None:
         if provider != "telegram":
@@ -97,6 +119,10 @@ class InboundService:
             return
         try:
             result = self.telegram_provider.answer_callback(str(callback["id"]))
-            self.audit_service.record("telegram_callback_ack", "success", payload={"result": result})
+            self.audit_service.record(
+                "telegram_callback_ack", "success", payload={"result": result}
+            )
         except Exception as exc:
-            self.audit_service.record("telegram_callback_ack", "failed", error_message=str(exc))
+            self.audit_service.record(
+                "telegram_callback_ack", "failed", error_message=str(exc)
+            )

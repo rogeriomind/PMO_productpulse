@@ -4,7 +4,9 @@ from app.services.audit_service import AuditService
 
 
 class PreprocessingService:
-    def __init__(self, transcription_provider: TranscriptionProvider, audit_service: AuditService):
+    def __init__(
+        self, transcription_provider: TranscriptionProvider, audit_service: AuditService
+    ):
         self.transcription_provider = transcription_provider
         self.audit_service = audit_service
 
@@ -21,7 +23,10 @@ class PreprocessingService:
                 "started",
                 conversation_id=message.conversation_id,
                 message_id=message.id,
-                payload={"media_file_id": message.media_file_id, "media_url": message.media_url},
+                payload={
+                    "media_file_id": message.media_file_id,
+                    "media_url": message.media_url,
+                },
             )
             file_path = message.media_url or message.media_file_id or "telegram-audio"
             self.audit_service.record(
