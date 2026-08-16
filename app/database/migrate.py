@@ -41,11 +41,9 @@ def run_migrations(
                 continue
             for statement in _split_sql(path.read_text(encoding="utf-8")):
                 connection.exec_driver_sql(statement)
-            connection.execute(
-                text("INSERT INTO schema_migrations (version) VALUES (:version)"),
-                {"version": version},
-            )
-            applied.append(version)
+            inserted = _record_migration(connection, version)
+            if inserted:
+                applied.append(version)
 
     if owned_engine:
         engine.dispose()
@@ -54,6 +52,37 @@ def run_migrations(
 
 def _split_sql(sql: str) -> list[str]:
     return [statement.strip() for statement in sql.split(";") if statement.strip()]
+
+
+def _record_migration(connection, version: str) -> bool:
+    if connection.dialect.name == "postgresql":
+        result = connection.execute(
+            text(
+                """
+                INSERT INTO schema_migrations (version)
+                VALUES (:version)
+                ON CONFLICT (version) DO NOTHING
+                """
+            ),
+            {"version": version},
+        )
+        return bool(result.rowcount)
+
+    if connection.dialect.name == "sqlite":
+        result = connection.execute(
+            text("INSERT OR IGNORE INTO schema_migrations (version) VALUES (:version)"),
+            {"version": version},
+        )
+        return bool(result.rowcount)
+
+    try:
+        connection.execute(
+            text("INSERT INTO schema_migrations (version) VALUES (:version)"),
+            {"version": version},
+        )
+        return True
+    except Exception:
+        return False
 
 
 if __name__ == "__main__":
