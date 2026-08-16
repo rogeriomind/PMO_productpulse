@@ -19,7 +19,9 @@ class DebounceRepository:
             .limit(1)
         )
 
-    def upsert_open(self, conversation_id: str, combined_text: str) -> DebounceBufferRecord:
+    def upsert_open(
+        self, conversation_id: str, combined_text: str
+    ) -> DebounceBufferRecord:
         record = self.get_open(conversation_id)
         if not record:
             record = DebounceBufferRecord(conversation_id=conversation_id)
@@ -31,7 +33,9 @@ class DebounceRepository:
         self.db.refresh(record)
         return record
 
-    def flush_open(self, conversation_id: str, combined_text: str | None = None) -> DebounceBufferRecord | None:
+    def flush_open(
+        self, conversation_id: str, combined_text: str | None = None
+    ) -> DebounceBufferRecord | None:
         record = self.get_open(conversation_id)
         if not record:
             return None

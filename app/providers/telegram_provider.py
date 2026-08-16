@@ -5,11 +5,15 @@ from app.providers.message_provider import MessageProvider
 
 
 class TelegramMessageProvider(MessageProvider):
-    def __init__(self, settings: Settings | None = None, client: httpx.Client | None = None):
+    def __init__(
+        self, settings: Settings | None = None, client: httpx.Client | None = None
+    ):
         self.settings = settings or get_settings()
         self.client = client or httpx.Client(timeout=10)
 
-    def send_text(self, chat_id: str, text: str, reply_markup: dict | None = None) -> dict:
+    def send_text(
+        self, chat_id: str, text: str, reply_markup: dict | None = None
+    ) -> dict:
         payload = {"chat_id": chat_id, "text": text}
         if reply_markup:
             payload["reply_markup"] = reply_markup
@@ -21,7 +25,11 @@ class TelegramMessageProvider(MessageProvider):
         response = self.client.post(url, json=payload)
         data = response.json() if response.content else {}
         if response.status_code >= 400:
-            message = data.get("description") or data.get("message") or "Falha ao enviar mensagem Telegram"
+            message = (
+                data.get("description")
+                or data.get("message")
+                or "Falha ao enviar mensagem Telegram"
+            )
             raise RuntimeError(message)
         return data
 
@@ -37,6 +45,10 @@ class TelegramMessageProvider(MessageProvider):
         response = self.client.post(url, json=payload)
         data = response.json() if response.content else {}
         if response.status_code >= 400:
-            message = data.get("description") or data.get("message") or "Falha ao confirmar callback Telegram"
+            message = (
+                data.get("description")
+                or data.get("message")
+                or "Falha ao confirmar callback Telegram"
+            )
             raise RuntimeError(message)
         return data

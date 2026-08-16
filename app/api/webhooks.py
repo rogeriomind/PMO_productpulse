@@ -15,8 +15,14 @@ def telegram_webhook(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict:
-    if settings.telegram_webhook_secret and x_telegram_bot_api_secret_token != settings.telegram_webhook_secret:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid Telegram webhook secret")
+    if (
+        settings.telegram_webhook_secret
+        and x_telegram_bot_api_secret_token != settings.telegram_webhook_secret
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid Telegram webhook secret",
+        )
     return InboundService(db, settings).receive("telegram", payload)
 
 

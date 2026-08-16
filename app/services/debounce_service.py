@@ -12,6 +12,7 @@ class DebounceDecision:
     should_wait: bool
     combined_text: str
     queue_ids: list[str]
+    message_ids: list[str]
     remaining_seconds: int = 0
 
 
@@ -30,12 +31,23 @@ class DebounceService:
         self.audit_service = audit_service
         self.debounce_seconds = debounce_seconds
 
-    def assess_text(self, conversation_id: str, message_id: str | None = None) -> DebounceDecision:
+    def assess_text(
+        self, conversation_id: str, message_id: str | None = None
+    ) -> DebounceDecision:
         items = self.queue_repository.list_open_text_items(conversation_id)
-        combined_text = " ".join((message.normalized_text or "").strip() for _, message in items).strip()
+        combined_text = " ".join(
+            (message.normalized_text or "").strip() for _, message in items
+        ).strip()
         queue_ids = [queue.id for queue, _ in items]
-        last_message_at = self.message_repository.last_inbound_at(conversation_id, "text")
-        elapsed = (utcnow() - last_message_at).total_seconds() if last_message_at else self.debounce_seconds
+        message_ids = [message.id for _, message in items]
+        last_message_at = self.message_repository.last_inbound_at(
+            conversation_id, "text"
+        )
+        elapsed = (
+            (utcnow() - last_message_at).total_seconds()
+            if last_message_at
+            else self.debounce_seconds
+        )
 
         if elapsed < self.debounce_seconds:
             remaining = max(1, int(self.debounce_seconds - elapsed))
@@ -47,7 +59,9 @@ class DebounceService:
                 message_id=message_id,
                 payload={"remaining_seconds": remaining, "queue_ids": queue_ids},
             )
-            return DebounceDecision(True, combined_text, queue_ids, remaining)
+            return DebounceDecision(
+                True, combined_text, queue_ids, message_ids, remaining
+            )
 
         self.debounce_repository.flush_open(conversation_id, combined_text)
         self.audit_service.record(
@@ -57,19 +71,30 @@ class DebounceService:
             message_id=message_id,
             payload={"queue_ids": queue_ids, "combined_text": combined_text},
         )
-        return DebounceDecision(False, combined_text, queue_ids)
+        return DebounceDecision(False, combined_text, queue_ids, message_ids)
 
-    def flush_pending_texts(self, conversation_id: str, exclude_queue_id: str | None = None) -> DebounceDecision | None:
-        items = self.queue_repository.list_open_text_items(conversation_id, exclude_queue_id=exclude_queue_id)
+    def flush_pending_texts(
+        self, conversation_id: str, exclude_queue_id: str | None = None
+    ) -> DebounceDecision | None:
+        items = self.queue_repository.list_open_text_items(
+            conversation_id, exclude_queue_id=exclude_queue_id
+        )
         if not items:
             return None
-        combined_text = " ".join((message.normalized_text or "").strip() for _, message in items).strip()
+        combined_text = " ".join(
+            (message.normalized_text or "").strip() for _, message in items
+        ).strip()
         queue_ids = [queue.id for queue, _ in items]
+        message_ids = [message.id for _, message in items]
         self.debounce_repository.flush_open(conversation_id, combined_text)
         self.audit_service.record(
             "debounce_flushed",
             "success",
             conversation_id=conversation_id,
-            payload={"forced_by_audio": True, "queue_ids": queue_ids, "combined_text": combined_text},
+            payload={
+                "forced_by_audio": True,
+                "queue_ids": queue_ids,
+                "combined_text": combined_text,
+            },
         )
-        return DebounceDecision(False, combined_text, queue_ids)
+        return DebounceDecision(False, combined_text, queue_ids, message_ids)

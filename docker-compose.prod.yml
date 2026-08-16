@@ -15,7 +15,7 @@ services:
   api:
     build: .
     restart: unless-stopped
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    command: sh -c "python -m app.database.migrate && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     env_file:
       - .env
     expose:
@@ -24,19 +24,18 @@ services:
       - agent-postgres
     networks:
       - pmo_agent
-      - board_pmo_default
 
   worker:
     build: .
     restart: unless-stopped
-    command: python -m app.workers.message_worker
+    command: sh -c "python -m app.database.migrate && python -m app.workers.message_worker"
     env_file:
       - .env
     depends_on:
       - agent-postgres
     networks:
       - pmo_agent
-      - board_pmo_default
+      - pmo_ai_network
 
   caddy:
     image: caddy:2-alpine
@@ -59,5 +58,6 @@ volumes:
 
 networks:
   pmo_agent:
-  board_pmo_default:
+  pmo_ai_network:
     external: true
+    name: ${PMO_AI_NETWORK_NAME:-pmo_ai_network}
